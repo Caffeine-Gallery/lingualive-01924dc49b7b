@@ -1,4 +1,4 @@
-import Func "mo:base/Func";
+import Bool "mo:base/Bool";
 
 import Text "mo:base/Text";
 import Array "mo:base/Array";
@@ -10,52 +10,48 @@ import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 import Result "mo:base/Result";
 import Buffer "mo:base/Buffer";
+import Principal "mo:base/Principal";
 
 actor {
-  // Define the Translation type
   type Translation = {
     original: Text;
     translated: Text;
     language: Text;
+    user: Principal;
   };
 
-  // Create a stable variable to store translations
   stable var translationsEntries : [(Text, Translation)] = [];
-
-  // Create a HashMap to store translations
   var translations = HashMap.HashMap<Text, Translation>(10, Text.equal, Text.hash);
 
-  // Initialize the HashMap with stable data
-  public func init() : async () {
-    translations := HashMap.fromIter<Text, Translation>(translationsEntries.vals(), 10, Text.equal, Text.hash);
-  };
-
-  // Function to add a translation
-  public func addTranslation(original: Text, translated: Text, language: Text) : async () {
+  public shared({ caller }) func addTranslation(original: Text, translated: Text, language: Text) : async () {
     let key = original # language;
     let translation : Translation = {
       original = original;
       translated = translated;
       language = language;
+      user = caller;
     };
     translations.put(key, translation);
   };
 
-  // Function to get translation history
-  public query func getTranslationHistory() : async [Translation] {
+  public shared query({ caller }) func getTranslationHistory() : async [Translation] {
     let buffer = Buffer.Buffer<Translation>(translations.size());
     for ((_, translation) in translations.entries()) {
-      buffer.add(translation);
+      if (translation.user == caller) {
+        buffer.add(translation);
+      };
     };
     Buffer.toArray(buffer)
   };
 
-  // Pre-upgrade hook to save the state
+  public shared query func isAuthenticated(p : Principal) : async Bool {
+    not Principal.isAnonymous(p)
+  };
+
   system func preupgrade() {
     translationsEntries := Iter.toArray(translations.entries());
   };
 
-  // Post-upgrade hook to restore the state
   system func postupgrade() {
     translations := HashMap.fromIter<Text, Translation>(translationsEntries.vals(), 10, Text.equal, Text.hash);
   };

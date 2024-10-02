@@ -3,9 +3,10 @@ type Translation =
    language: text;
    original: text;
    translated: text;
+   user: principal;
  };
 service : {
   addTranslation: (text, text, text) -> ();
   getTranslationHistory: () -> (vec Translation) query;
-  init: () -> ();
+  isAuthenticated: (principal) -> (bool) query;
 }

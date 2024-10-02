@@ -1,12 +1,57 @@
-import { backend } from 'declarations/backend';
+import { AuthClient } from "@dfinity/auth-client";
+import { Actor, HttpAgent } from "@dfinity/agent";
+import { backend } from "declarations/backend";
 
 const inputText = document.getElementById('input-text');
 const languageSelect = document.getElementById('language-select');
 const outputText = document.getElementById('output-text');
 const speakButton = document.getElementById('speak-button');
 const historyList = document.getElementById('history-list');
+const authButton = document.getElementById('auth-button');
+const authMessage = document.getElementById('auth-message');
+const appContent = document.getElementById('app-content');
 
+let authClient;
+let actor;
 let translationTimeout;
+
+async function initAuth() {
+    authClient = await AuthClient.create();
+    const isAuthenticated = await authClient.isAuthenticated();
+    updateAuthStatus(isAuthenticated);
+}
+
+async function updateAuthStatus(isAuthenticated) {
+    if (isAuthenticated) {
+        authButton.textContent = "Logout";
+        authMessage.textContent = "Authenticated";
+        appContent.style.display = "block";
+        const identity = authClient.getIdentity();
+        const agent = new HttpAgent({ identity });
+        actor = Actor.createActor(backend.idlFactory, {
+            agent,
+            canisterId: backend.canisterId,
+        });
+        updateTranslationHistory();
+    } else {
+        authButton.textContent = "Login";
+        authMessage.textContent = "Not authenticated";
+        appContent.style.display = "none";
+        actor = null;
+    }
+}
+
+async function handleAuth() {
+    if (await authClient.isAuthenticated()) {
+        await authClient.logout();
+        updateAuthStatus(false);
+    } else {
+        await authClient.login({
+            identityProvider: "https://identity.ic0.app/#authorize",
+            onSuccess: () => updateAuthStatus(true),
+        });
+    }
+}
 
 async function translateText() {
     const text = inputText.value;
@@ -26,11 +71,10 @@ async function translateText() {
             const translatedText = data.responseData.translatedText;
             outputText.value = translatedText;
 
-            // Add translation to backend
-            await backend.addTranslation(text, translatedText, targetLang);
-
-            // Update history
-            updateTranslationHistory();
+            if (actor) {
+                await actor.addTranslation(text, translatedText, targetLang);
+                updateTranslationHistory();
+            }
         } else {
             throw new Error('Translation failed');
         }
@@ -46,7 +90,9 @@ function debounceTranslation() {
 }
 
 async function updateTranslationHistory() {
-    const history = await backend.getTranslationHistory();
+    if (!actor) return;
+
+    const history = await actor.getTranslationHistory();
     historyList.innerHTML = '';
     history.forEach(item => {
         const li = document.createElement('li');
@@ -73,11 +119,6 @@ function speakTranslation() {
     }
 }
 
-inputText.addEventListener('input', debounceTranslation);
-languageSelect.addEventListener('change', translateText);
-speakButton.addEventListener('click', speakTranslation);
-
-// Animations
 function addInputAnimation() {
     inputText.style.transition = 'transform 0.3s ease';
     inputText.addEventListener('focus', () => {
@@ -100,9 +141,11 @@ function addButtonAnimation() {
     });
 }
 
-// Initialize animations
+inputText.addEventListener('input', debounceTranslation);
+languageSelect.addEventListener('change', translateText);
+speakButton.addEventListener('click', speakTranslation);
+authButton.addEventListener('click', handleAuth);
+
 addInputAnimation();
 addButtonAnimation();
-
-// Initial history update
-updateTranslationHistory();
+initAuth();
